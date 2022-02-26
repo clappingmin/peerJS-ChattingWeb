@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 부트 스트랩 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p"
+    crossorigin="anonymous"></script>
+  <!-- 채팅 CSS -->
+  <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- 제이쿼리 -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"
+    integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+
+  <title>1:1 채팅 - 연결 요청을 받는 애</title>
+</head>
+
+<body>
+  <div class="container">
+
+    <!-- Page header start -->
+    <div class="page-title">
+      <div class="row gutters">
+        <div class="col-xl-6 col-lg-6 col-md-6 col-sm-12 col-12">
+          <h5 class="title">Chat App</h5>
+        </div>
+        <div class="col-xl-6 col-lg-6 col-md-6 col-sm-12 col-12">
+          <div id="receiver-id" style="font-weight: bold;">ID: </div>
+        </div>
+      </div>
+      <div class="row status" id="status"></div>
+    </div>
+    <!-- Page header end -->
+
+    <!-- Content wrapper start -->
+    <div class="content-wrapper">
+
+      <!-- Row start -->
+      <div class="row gutters">
+        <div class="col-xl-12 col-lg-12 col-md-12 col-sm-12 col-12">
+          <div class="card m-0">
+
+            <!-- Row start -->
+            <div class="row no-gutters">
+              <div class="col-12">
+                <div class="chat-container">
+                  <ul class="chat-box chatContainerScroll" id="chat_box">
+                  </ul>
+                  <div class="form-group mt-3 mb-0">
+                    <input type="text" class="form-control" placeholder="Type your message here..."
+                      id="sendMessageBox"></input>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Row end -->
+          </div>
+        </div>
+      </div>
+      <!-- Row end -->
+    </div>
+    <!-- Content wrapper end -->
+  </div>
+  <!-- peerJs 사용하기 위해 -->
+  <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+  <script>
+    let peer = null;
+    let lastPeerId = null;
+    let conn = null;
+
+    function init() {
+      //  peerJs 객체를 선언해서 webRtc를 사용할 수 있는 상태를 만들거임
+      peer = new Peer();
+
+      // 커넥션이 연결되서 오픈되었을 때를 의미
+      peer.on('open', function (id) {
+        if (peer.id === null) { // 연결된 아이디가 없을 때를 의미
+          peer.id = lastPeerId; // 마지막으로 접속했던 id
+        }
+        else {
+          lastPeerId = peer.id;
+        }
+        console.log(peer.id)
+        $('#receiver-id').html("ID: " + peer.id);
+        $('#status').html("Awating connection..");
+      })
+
+      // connection 이벤트는 언제 일어나는가?
+      // 누군가 상대방이 나에게 connection을 요청할 때 발생하는 이벤트가 connection
+      // 1:1 채팅만 할거라서 누군가가 나에게 connection을 요청하면 거부할거임
+      peer.on('connection', function (con2) {  // connection이란 데이터를 받을 준비가 되었음을 의미
+        if (conn && conn.open) { // 이미 다른 누군가와 연결이 되어 있을 경우
+          con2.on('open', function () {
+            con2.send('Already connected to another client');
+            setTimeout(function () {
+              con2.close();
+            }, 500);
+          });
+        }
+        conn = con2;
+        $('#status').html("Connected to " + conn.peer);
+        ready(); // 데이터를 받을 준비를 하는 함수
+
+      });
+
+      peer.on('disconnected', function () { // 우리가 원하지 않은 연결 끊김일 경우 무조건 다시 연결
+        $('#status').html("Connection lost. Please reconnect.");
+        peer.id = lastPeerId;
+        peer._lastServerId = lastPeerId;
+        peer.recoonect(); // 다시 연결
+      })
+
+      peer.on('close', function () { // 이제 종료할 경우
+        conn = null;
+        $('#status').html('connection destoryed');
+      });
+
+      peer.on('error', function (err) { // 우리가 원하지 않을 때 에러가 났을 때를
+        alert(err);
+      });
+    }
+
+    // chat2에서는 join을 받을거니까 필요가 없다.
+
+    function ready() { // 받은 데이터를 뿌릴 준비하는 함수
+      conn.on('data', function (data) {
+        console.log('ready' + data);
+        addMessage(data, 'right');
+      });
+      conn.on('closed', function () {
+        $('#status').html("Connection reset. Awaiting connection...");
+        conn = null;
+      })
+    }
+
+    // 메시지를 화면에 뿌려주는 작업
+    // (메시지, 메시지 표시 위치) -> 나는 왼쪽, 상대방 오른쪽
+    function addMessage(msg, side) {
+      var now = new Date();
+      var h = now.getHours();
+      var m = now.getMinutes();
+      var s = now.getSeconds();
+      var msgHtml = [];
+
+      if (h < 10) h = '0' + h;
+      if (m < 10) m = '0' + m;
+      if (s < 10) s = '0' + s;
+
+      if (side === 'left') {
+        msgHtml.push(`<li class="chat-left">
+          <div class="chat-avatar">
+            <img src="https://www.bootdey.com/img/Content/avatar/avatar5.png" alt="Retail Admin">
+              <div class="chat-name">Joyse</div>
+          </div>
+          <div class="chat-text"> ${msg}</div>
+          <div class="chat-hour">${h}:${m}:${s} <span class="fa fa-check-circle"></span></div>
+        </li>`);
+      }
+      else {
+        msgHtml.push(`<li class="chat-right">
+          <div class="chat-hour">${h}:${m}:${s}<span class="fa fa-check-circle"></span></div>
+          <div class="chat-text">${msg}</div>
+          <div class="chat-avatar">
+            <img src="https://www.bootdey.com/img/Content/avatar/avatar3.png" alt="Retail Admin">
+              <div class="chat-name">Russell</div>
+          </div>
+        </li>`);
+      }
+      $('#chat_box').append(msgHtml);
+    }
+
+    //  dom이 다 로딩되고 나면 원하는 코드를 넣을거다
+    $(document).ready(function () {
+      init();
+
+      $('#sendMessageBox').keydown(function (key) { // key가 13인 경우 즉, 사용자가 엔터를 눌렀을 때
+        if (key.keyCode === 13) {
+          if (conn && conn.open) {
+            var msg = $('#sendMessageBox').val();
+            $('#sendMessageBox').val('') // input box 초기화
+            conn.send(msg); // 연결된 상대방한테 데이터를 보냄
+            addMessage(msg, 'left');
+          } else { // 연결이 안되어 있을 경우
+            $('#status').html('Connection is closed');
+          }
+        }
+      });
+    });
+  </script>
+
+</body>
+
+</html>
